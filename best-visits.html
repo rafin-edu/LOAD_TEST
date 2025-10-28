@@ -1,0 +1,263 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Visit Simulator</title>
+    <style>
+        body {
+            font-family: system-ui, -apple-system, sans-serif;
+            max-width: 600px;
+            margin: 50px auto;
+            padding: 20px;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+        }
+        .container {
+            background: white;
+            border-radius: 16px;
+            padding: 30px;
+            box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+        }
+        h1 {
+            color: #667eea;
+            margin-top: 0;
+            font-size: 2rem;
+        }
+        .stats {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 15px;
+            margin: 20px 0;
+        }
+        .stat-box {
+            background: #f8f9fa;
+            padding: 20px;
+            border-radius: 12px;
+            text-align: center;
+            border: 2px solid #e9ecef;
+        }
+        .stat-value {
+            font-size: 2.5rem;
+            font-weight: 900;
+            color: #667eea;
+            margin: 10px 0;
+        }
+        .stat-label {
+            color: #6c757d;
+            font-weight: 600;
+            font-size: 0.9rem;
+        }
+        .controls {
+            display: flex;
+            gap: 10px;
+            margin: 20px 0;
+        }
+        input {
+            flex: 1;
+            padding: 12px;
+            border: 2px solid #e9ecef;
+            border-radius: 8px;
+            font-size: 1rem;
+        }
+        button {
+            padding: 12px 24px;
+            border: none;
+            border-radius: 8px;
+            font-size: 1rem;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.3s;
+        }
+        .btn-primary {
+            background: #667eea;
+            color: white;
+        }
+        .btn-primary:hover {
+            background: #5568d3;
+            transform: translateY(-2px);
+        }
+        .btn-danger {
+            background: #dc3545;
+            color: white;
+        }
+        .btn-danger:hover {
+            background: #c82333;
+        }
+        .btn-success {
+            background: #28a745;
+            color: white;
+        }
+        #log {
+            background: #f8f9fa;
+            padding: 15px;
+            border-radius: 8px;
+            max-height: 200px;
+            overflow-y: auto;
+            font-family: monospace;
+            font-size: 0.85rem;
+            margin-top: 20px;
+        }
+        .log-entry {
+            padding: 5px 0;
+            border-bottom: 1px solid #e9ecef;
+        }
+        .log-success { color: #28a745; }
+        .log-error { color: #dc3545; }
+        .log-info { color: #6c757d; }
+        .warning {
+            background: #fff3cd;
+            border: 2px solid #ffc107;
+            border-radius: 8px;
+            padding: 15px;
+            margin: 20px 0;
+            color: #856404;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🚀 Visit Simulator</h1>
+        
+        <div class="warning">
+            <strong>⚠️ Notice:</strong> This tool sends real requests to your Firebase database. Use responsibly!
+        </div>
+
+        <div class="stats">
+            <div class="stat-box">
+                <div class="stat-label">Visits Sent</div>
+                <div class="stat-value" id="sentCount">0</div>
+            </div>
+            <div class="stat-box">
+                <div class="stat-label">Success Rate</div>
+                <div class="stat-value" id="successRate">0%</div>
+            </div>
+        </div>
+
+        <div class="controls">
+            <input type="number" id="visitCount" value="10" min="1" max="1000" placeholder="Number of visits">
+            <button class="btn-primary" onclick="simulateVisits()">Send Visits</button>
+            <button class="btn-danger" onclick="stopSimulation()">Stop</button>
+        </div>
+
+        <button class="btn-success" style="width: 100%; margin: 10px 0;" onclick="continuousMode()">
+            Continuous Mode (1 visit/sec)
+        </button>
+
+        <div id="log"></div>
+    </div>
+
+    <script type="module">
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js";
+        import { getDatabase, ref, runTransaction } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-database.js";
+
+        const firebaseConfig = {
+          apiKey: "AIzaSyBaKVrTWKeaUxa0EaiDBR8OGpGCAjxAcUA",
+          authDomain: "boardrankctg.firebaseapp.com",
+          databaseURL: "https://boardrankctg-default-rtdb.asia-southeast1.firebasedatabase.app",
+          projectId: "boardrankctg",
+          storageBucket: "boardrankctg.firebasestorage.app",
+          messagingSenderId: "751761229963",
+          appId: "1:751761229963:web:43f9dbf71feef6dc9cec8e",
+          measurementId: "G-3Y6J44NWNH"
+        };
+
+        const app = initializeApp(firebaseConfig);
+        const db = getDatabase(app);
+
+        let sentCount = 0;
+        let successCount = 0;
+        let isRunning = false;
+        let continuousInterval = null;
+
+        function addLog(message, type = 'info') {
+            const log = document.getElementById('log');
+            const entry = document.createElement('div');
+            entry.className = `log-entry log-${type}`;
+            entry.textContent = `[${new Date().toLocaleTimeString()}] ${message}`;
+            log.insertBefore(entry, log.firstChild);
+            
+            if (log.children.length > 50) {
+                log.removeChild(log.lastChild);
+            }
+        }
+
+        function updateStats() {
+            document.getElementById('sentCount').textContent = sentCount;
+            const rate = sentCount > 0 ? Math.round((successCount / sentCount) * 100) : 0;
+            document.getElementById('successRate').textContent = rate + '%';
+        }
+
+        async function sendVisit() {
+            try {
+                await runTransaction(ref(db, "siteStats/totalVisits"), (count) => (count || 0) + 1);
+                sentCount++;
+                successCount++;
+                addLog(`✓ Visit #${sentCount} sent successfully`, 'success');
+                updateStats();
+                return true;
+            } catch (error) {
+                sentCount++;
+                addLog(`✗ Visit #${sentCount} failed: ${error.message}`, 'error');
+                updateStats();
+                return false;
+            }
+        }
+
+        async function simulateVisits() {
+            if (isRunning) {
+                addLog('Already running! Please wait...', 'info');
+                return;
+            }
+
+            const count = parseInt(document.getElementById('visitCount').value);
+            if (isNaN(count) || count < 1) {
+                addLog('Please enter a valid number', 'error');
+                return;
+            }
+
+            isRunning = true;
+            addLog(`Starting simulation of ${count} visits...`, 'info');
+
+            for (let i = 0; i < count && isRunning; i++) {
+                await sendVisit();
+                // Delay to avoid rate limiting (adjust as needed)
+                await new Promise(resolve => setTimeout(resolve, 100));
+            }
+
+            isRunning = false;
+            addLog('Simulation completed!', 'success');
+        }
+
+        function stopSimulation() {
+            isRunning = false;
+            if (continuousInterval) {
+                clearInterval(continuousInterval);
+                continuousInterval = null;
+                addLog('Continuous mode stopped', 'info');
+            } else {
+                addLog('Stopping current simulation...', 'info');
+            }
+        }
+
+        function continuousMode() {
+            if (continuousInterval) {
+                addLog('Continuous mode already running!', 'info');
+                return;
+            }
+
+            addLog('Starting continuous mode (1 visit/second)...', 'info');
+            continuousInterval = setInterval(() => {
+                sendVisit();
+            }, 1000);
+        }
+
+        // Make functions available globally
+        window.simulateVisits = simulateVisits;
+        window.stopSimulation = stopSimulation;
+        window.continuousMode = continuousMode;
+
+        addLog('Simulator ready! Enter number of visits and click "Send Visits"', 'success');
+    </script>
+</body>
+</html>
